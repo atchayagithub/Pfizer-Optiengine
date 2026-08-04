@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DSS declarative template project",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": {"const": 1},
+    "project": {"type": "object", "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "owner": {"type": "string"}, "description": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "settings": {"type": "object"}}},
+    "connections": {"type": "array", "items": {"$ref": "#/$defs/connection"}},
+    "zones": {"type": "array", "items": {"$ref": "#/$defs/named"}},
+    "datasets": {"type": "array", "items": {"$ref": "#/$defs/named"}},
+    "folders": {"type": "array", "items": {"$ref": "#/$defs/named"}},
+    "recipes": {"type": "array", "items": {"$ref": "#/$defs/named"}},
+    "sample_data": {"type": "array", "items": {"$ref": "#/$defs/sample_data"}},
+    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}
+  },
+  "$defs": {
+    "named": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "zone": {"type": "string"}, "description": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "settings": {"type": "object"}}},
+    "connection": {"allOf": [{"$ref": "#/$defs/named"}, {"required": ["type"], "properties": {"type": {"type": "string"}, "params": {"type": "object"}, "allow_existing": {"type": "boolean"}, "usable_by": {"enum": ["ALL", "ALLOWED"]}, "allowed_groups": {"type": "array", "items": {"type": "string"}}}}]},
+    "sample_data": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}, "generator": {"type": "string"}, "records": {"type": "integer", "minimum": 1}, "seed": {"type": "integer"}, "filename": {"type": "string"}}},
+    "model": {"type": "object", "required": ["folder", "sample_data"], "properties": {"generator": {"type": "string"}, "folder": {"type": "string"}, "sample_data": {"type": "string"}, "filename": {"type": "string"}, "destination": {"type": "string"}, "features": {"type": "array", "items": {"type": "string"}}, "target": {"type": "string"}}}
+  }
+}

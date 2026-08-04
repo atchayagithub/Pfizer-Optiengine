@@ -1,0 +1,281 @@
+version: 1
+
+project:
+  key: HOSPITAL_ANALYTICS
+  name: Hospital Patient Analytics
+  description: "Hospital patient analytics Flow created entirely from declarative configuration"
+  tags: [template, hospital, clinical, analytics, generated]
+
+# Change this to a writable DSS connection on the target instance when needed.
+connections: []
+
+zones:
+  - {name: Raw Data, color: "#4E79A7"}
+  - {name: Clinical Processing, color: "#F28E2B"}
+  - {name: Risk Prediction, color: "#59A14F"}
+  - {name: Reporting, color: "#E15759"}
+
+sample_data:
+  - {name: patients, generator: hospital_patients, records: 200, seed: 2026, filename: patients.csv}
+  - {name: admissions, generator: hospital_admissions, records: 250, seed: 2026, filename: admissions.csv}
+  - {name: diagnoses, generator: hospital_diagnoses, records: 250, seed: 2026, filename: diagnoses.csv}
+  - {name: medications, generator: hospital_medications, records: 300, seed: 2026, filename: medications.csv}
+  # Local training fixture only. The Flow itself generates patient_features.
+  - {name: patient_features_training, generator: hospital_features, records: 250, seed: 2026, filename: patient_features_training.csv}
+
+datasets:
+  - name: patients
+    kind: uploaded
+    connection: dataiku-managed-storage
+    external_connection: true
+    generated_sample: patients
+    zone: Raw Data
+    schema_columns:
+      - {name: patient_id, type: string}
+      - {name: patient_name, type: string}
+      - {name: age, type: bigint}
+      - {name: gender, type: string}
+      - {name: blood_group, type: string}
+      - {name: city, type: string}
+      - {name: phone, type: string}
+  - name: admissions
+    kind: uploaded
+    connection: dataiku-managed-storage
+    external_connection: true
+    generated_sample: admissions
+    zone: Raw Data
+    schema_columns:
+      - {name: admission_id, type: string}
+      - {name: patient_id, type: string}
+      - {name: admission_date, type: date}
+      - {name: discharge_date, type: date}
+      - {name: department, type: string}
+      - {name: doctor, type: string}
+      - {name: admission_type, type: string}
+  - name: diagnoses
+    kind: uploaded
+    connection: dataiku-managed-storage
+    external_connection: true
+    generated_sample: diagnoses
+    zone: Raw Data
+    schema_columns:
+      - {name: diagnosis_id, type: string}
+      - {name: patient_id, type: string}
+      - {name: diagnosis_code, type: string}
+      - {name: diagnosis_description, type: string}
+      - {name: severity, type: string}
+  - name: medications
+    kind: uploaded
+    connection: dataiku-managed-storage
+    external_connection: true
+    generated_sample: medications
+    zone: Raw Data
+    schema_columns:
+      - {name: medication_id, type: string}
+      - {name: patient_id, type: string}
+      - {name: medicine_name, type: string}
+      - {name: dosage, type: string}
+      - {name: frequency, type: string}
+  - {name: patients_clean, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: admissions_clean, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: diagnoses_clean, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: medications_clean, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: patient_admissions, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: clinical_data, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Clinical Processing}
+  - {name: patient_features, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Risk Prediction}
+  - {name: patient_risk_predictions, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Risk Prediction}
+  - {name: hospital_dashboard, kind: managed, connection: dataiku-managed-storage, external_connection: true, zone: Reporting}
+
+folders:
+  - name: models
+    connection: dataiku-managed-storage
+    external_connection: true
+    folder_type: S3
+    storage_params:
+      connection: dataiku-managed-storage
+      path: "/managed-dss-data/${projectKey}/${odbId}"
+    zone: Risk Prediction
+
+models:
+  - generator: logistic_regression
+    folder: models
+    destination: /patient_risk_model.pkl
+    filename: patient_risk_model.pkl
+    sample_data: patient_features_training
+    features: [age, length_of_stay, severity_score]
+    target: risk_label
+    random_state: 2026
+
+recipes:
+  - name: prepare_patients
+    type: prepare
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: patients}]}}
+      outputs: {main: {items: [{ref: patients_clean, appendMode: false}]}}
+    payload:
+      steps:
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [age], appliesTo: SINGLE_COLUMN, value: "0"}}
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [gender], appliesTo: SINGLE_COLUMN, value: Unknown}}
+  - name: prepare_admissions
+    type: prepare
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: admissions}]}}
+      outputs: {main: {items: [{ref: admissions_clean, appendMode: false}]}}
+    payload:
+      steps:
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [department], appliesTo: SINGLE_COLUMN, value: Unknown}}
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [admission_type], appliesTo: SINGLE_COLUMN, value: Unknown}}
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [doctor], appliesTo: SINGLE_COLUMN, value: Unknown}}
+  - name: prepare_diagnoses
+    type: prepare
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: diagnoses}]}}
+      outputs: {main: {items: [{ref: diagnoses_clean, appendMode: false}]}}
+    payload:
+      steps:
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [diagnosis_description], appliesTo: SINGLE_COLUMN, value: Unknown}}
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [severity], appliesTo: SINGLE_COLUMN, value: Low}}
+  - name: prepare_medications
+    type: prepare
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: medications}]}}
+      outputs: {main: {items: [{ref: medications_clean, appendMode: false}]}}
+    payload:
+      steps:
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [dosage], appliesTo: SINGLE_COLUMN, value: Unknown}}
+        - {metaType: PROCESSOR, type: FillEmptyWithValue, params: {columns: [frequency], appliesTo: SINGLE_COLUMN, value: Unknown}}
+  - name: join_patient_admissions
+    type: join
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: patients_clean}, {ref: admissions_clean}]}}
+      outputs: {main: {items: [{ref: patient_admissions, appendMode: false}]}}
+    payload:
+      engineType: DSS
+      virtualInputs: [{index: 0}, {index: 1}]
+      joins:
+        - table1: 0
+          table2: 1
+          type: LEFT
+          outerJoinOnTheLeft: true
+          conditionsMode: AND
+          rightLimit: {decisionColumn: {}}
+          "on": [{type: EQ, column1: {name: patient_id, table: 0}, column2: {name: patient_id, table: 1}}]
+      selectedColumns:
+        - {name: patient_id, type: string, table: 0}
+        - {name: patient_name, type: string, table: 0}
+        - {name: age, type: bigint, table: 0}
+        - {name: gender, type: string, table: 0}
+        - {name: blood_group, type: string, table: 0}
+        - {name: city, type: string, table: 0}
+        - {name: phone, type: string, table: 0}
+        - {name: admission_id, type: string, table: 1}
+        - {name: admission_date, type: date, table: 1}
+        - {name: discharge_date, type: date, table: 1}
+        - {name: department, type: string, table: 1}
+        - {name: doctor, type: string, table: 1}
+        - {name: admission_type, type: string, table: 1}
+      computedColumns: []
+  - name: join_clinical_data
+    type: join
+    zone: Clinical Processing
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: patient_admissions}, {ref: diagnoses_clean}]}}
+      outputs: {main: {items: [{ref: clinical_data, appendMode: false}]}}
+    payload:
+      engineType: DSS
+      virtualInputs: [{index: 0}, {index: 1}]
+      joins:
+        - table1: 0
+          table2: 1
+          type: LEFT
+          outerJoinOnTheLeft: true
+          conditionsMode: AND
+          rightLimit: {decisionColumn: {}}
+          "on": [{type: EQ, column1: {name: patient_id, table: 0}, column2: {name: patient_id, table: 1}}]
+      selectedColumns:
+        - {name: patient_id, type: string, table: 0}
+        - {name: patient_name, type: string, table: 0}
+        - {name: age, type: bigint, table: 0}
+        - {name: gender, type: string, table: 0}
+        - {name: blood_group, type: string, table: 0}
+        - {name: city, type: string, table: 0}
+        - {name: phone, type: string, table: 0}
+        - {name: admission_id, type: string, table: 0}
+        - {name: admission_date, type: date, table: 0}
+        - {name: discharge_date, type: date, table: 0}
+        - {name: department, type: string, table: 0}
+        - {name: doctor, type: string, table: 0}
+        - {name: admission_type, type: string, table: 0}
+        - {name: diagnosis_id, type: string, table: 1}
+        - {name: diagnosis_code, type: string, table: 1}
+        - {name: diagnosis_description, type: string, table: 1}
+        - {name: severity, type: string, table: 1}
+      computedColumns: []
+  - name: join_patient_features
+    type: join
+    zone: Risk Prediction
+    params: {engineType: DSS}
+    definition:
+      inputs: {main: {items: [{ref: clinical_data}, {ref: medications_clean}]}}
+      outputs: {main: {items: [{ref: patient_features, appendMode: false}]}}
+    payload:
+      engineType: DSS
+      virtualInputs: [{index: 0}, {index: 1}]
+      joins:
+        - table1: 0
+          table2: 1
+          type: LEFT
+          outerJoinOnTheLeft: true
+          conditionsMode: AND
+          rightLimit: {decisionColumn: {}}
+          "on": [{type: EQ, column1: {name: patient_id, table: 0}, column2: {name: patient_id, table: 1}}]
+      selectedColumns:
+        - {name: patient_id, type: string, table: 0}
+        - {name: patient_name, type: string, table: 0}
+        - {name: age, type: bigint, table: 0}
+        - {name: gender, type: string, table: 0}
+        - {name: blood_group, type: string, table: 0}
+        - {name: city, type: string, table: 0}
+        - {name: phone, type: string, table: 0}
+        - {name: admission_id, type: string, table: 0}
+        - {name: admission_date, type: date, table: 0}
+        - {name: discharge_date, type: date, table: 0}
+        - {name: department, type: string, table: 0}
+        - {name: doctor, type: string, table: 0}
+        - {name: admission_type, type: string, table: 0}
+        - {name: diagnosis_id, type: string, table: 0}
+        - {name: diagnosis_code, type: string, table: 0}
+        - {name: diagnosis_description, type: string, table: 0}
+        - {name: severity, type: string, table: 0}
+        - {name: medication_id, type: string, table: 1}
+        - {name: medicine_name, type: string, table: 1}
+        - {name: dosage, type: string, table: 1}
+        - {name: frequency, type: string, table: 1}
+      computedColumns: []
+  - name: predict_patient_risk
+    type: python
+    zone: Risk Prediction
+    code_template: recipes/predict_patient_risk.py
+    definition:
+      inputs:
+        main: {items: [{ref: patient_features}]}
+        model_folder: {items: [{ref: models}]}
+      outputs: {main: {items: [{ref: patient_risk_predictions, appendMode: false}]}}
+  - name: create_hospital_dashboard
+    type: python
+    zone: Reporting
+    code_template: recipes/create_hospital_dashboard.py
+    definition:
+      inputs: {main: {items: [{ref: patient_risk_predictions}]}}
+      outputs: {main: {items: [{ref: hospital_dashboard, appendMode: false}]}}
